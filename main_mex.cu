@@ -29,7 +29,7 @@
 ////Linear systems options
 ////////////////////////////////////////////////////////////////////////////////////
 
-#define NSYS	1			//Number of linear equation systems
+#define NSYS	2			//Number of linear equation systems
 
 #define N		441 //Rows (number of equations)
 #define M		441 //Cols (number of variables)
@@ -106,7 +106,7 @@ __device__ int maxIndex512(float smem512[], float smemC512[], unsigned short tID
 ////////////////////////////////////////////////////////////
 //Parallel l2 norm
 ////////////////////////////////////////////////////////////
-__device__ float norml2_512(float smem512[], float V[512], unsigned short tID){
+__device__ float norml2_512(float smem512[], float *V, unsigned short tID){
   __syncthreads();
   smem512[tID] = V[tID] * V[tID];
   return sqrtf(reduce512(smem512, tID));
@@ -120,7 +120,7 @@ __device__ float norml2_512(float smem512[], float v, unsigned short tID){
 
 }
 
-__device__ float norml2sq512(float smem512[], float V[512], unsigned short tID){
+__device__ float norml2sq512(float smem512[], float *V, unsigned short tID){
   __syncthreads();
   smem512[tID] = V[tID] * V[tID];
   return (reduce512(smem512, tID));
@@ -446,6 +446,9 @@ extern "C"{
 
     //	nIters[sSysID] = stackColUpdated;
     //	lsIters[sSysID] = normalColUpdated;
+    if(tID==0){
+        printf("thread 0 end\n");
+    }
 
   }
 }
@@ -554,7 +557,10 @@ int main(int argc, char** argv) {
   cudaEventRecord(start, 0);
   NNLS_MGS_GR_512 << <dimGrid, dimBlock >> >(d_A, d_At, d_x, d_b,
     d_R, d_nnlsIters, d_lsIters);
-  cudaDeviceSynchronize();
+  cudaError_t status = cudaDeviceSynchronize();
+  if(status != cudaSuccess){
+    printf("error: %s\n", cudaGetErrorString(status));
+  }
   cudaEventRecord(stop, 0);
   cudaEventSynchronize(stop);
   cudaEventElapsedTime(&elapsed, start, stop);
@@ -653,7 +659,6 @@ int main(int argc, char** argv) {
   // CUT_EXIT(argc, argv);
 }
 
-/*
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
   //get params from matlab
@@ -748,7 +753,11 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   cudaEventElapsedTime(&elapsed, start, stop);
 
   //Get GPU results
-  cudaMemcpy(h_x, d_x, x_mem_size, cudaMemcpyDeviceToHost);
+  float *h_x2 = (float*)malloc(x_mem_size);
+  cudaMemcpy(h_x2, d_x, x_mem_size, cudaMemcpyDeviceToHost);
+  for(int i = 0; i < M*NSYS; i++){
+    h_x[i] = h_x2[i];
+  }
   cudaMemcpy(h_nnlsIters, d_nnlsIters, iters_mem_size, cudaMemcpyDeviceToHost);
   cudaMemcpy(h_lsIters, d_lsIters, iters_mem_size, cudaMemcpyDeviceToHost);
 
@@ -808,6 +817,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   free(h_nnlsIters);
   free(h_A2);
   free(h_b2);
+  free(h_x2);
 
   //Free GPU memory
   cudaFree(d_A);
@@ -822,4 +832,3 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   cudaEventDestroy(stop);
 
 }
-*/
