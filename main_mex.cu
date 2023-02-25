@@ -29,10 +29,10 @@
 ////Linear systems options
 ////////////////////////////////////////////////////////////////////////////////////
 
-#define NSYS	2			//Number of linear equation systems
+#define NSYS	1			//Number of linear equation systems
 
-#define N		441 //Rows (number of equations)
-#define M		441 //Cols (number of variables)
+#define N		256 //Rows (number of equations)
+#define M		256 //Cols (number of variables)
 
 ////////////////////////////////////////////////////////////////////////////////////
 ////NNLS options
@@ -76,11 +76,27 @@
 /****************************************************************************************************************/
 __device__ float reduce512(float smem512[], unsigned short tID){
   __syncthreads();
-  float sum = smem512[0];
-  for(int i = 1; i < blockDim.x; i++){
-    sum += smem512[i];
+  if(false){
+      float sum = smem512[0];
+      for(int i = 1; i < blockDim.x; i++){
+          sum += smem512[i];
+      }
+      return sum;
+  }else{
+    int n = M;
+    while(n/2){
+        if(threadIdx.x < n / 2){
+            float a = smem512[threadIdx.x];
+            for(int i = threadIdx.x + n/2; i <  n; i+= n/2){
+                a += smem512[i];
+            }
+            smem512[threadIdx.x] = a;
+        }
+        n/=2;
+        __syncthreads();
+    }
+    return smem512[0];
   }
-  return sum;
 }
 
 
@@ -446,11 +462,29 @@ extern "C"{
 
     //	nIters[sSysID] = stackColUpdated;
     //	lsIters[sSysID] = normalColUpdated;
-    if(tID==0){
-        printf("thread 0 end\n");
-    }
 
   }
+}
+
+void from_file(float* a, float* b, const char* file_a, const char* file_b){
+    FILE *fp_a = fopen(file_a, "r");
+    FILE *fp_b = fopen(file_b, "r");
+    if(fp_a == NULL|| fp_b == NULL){
+        printf("open file failed!\n");
+        return;
+    }
+    for(int k = 0; k < NSYS; k++){
+        for(int i = 0; i < N; i++){
+            for(int j = 0; j < M; j++){
+                fscanf(fp_a, "%f,", &a[k * M * N + i * M + j]);
+            }
+        }
+    }
+    for(int i = 0; i < M * NSYS; i++){
+        fscanf(fp_b, "%f", &b[i]);
+    }
+    fclose(fp_a);
+    fclose(fp_b);
 }
 
 
@@ -503,6 +537,7 @@ int main(int argc, char** argv) {
   int *h_lsIters = (int*)malloc(iters_mem_size);
 
   //Generate matrices A and vectors b
+  if(false){
   srand(2010);
   for (int a = 0; a<NSYS; ++a){
     for (int b = 0; b<N; ++b){
@@ -522,6 +557,16 @@ int main(int argc, char** argv) {
     }
     //random vector b
     for (int b = 0; b<M; ++b)		h_b[B_I(a, b)] = (rand() % 1000) / 1000.0f;
+  }
+  }else{
+    from_file(h_A, h_b, "System_Matrix_3D.csv", "3234.csv");
+    for (int a = 0; a<NSYS; ++a){
+        for (int b = 0; b<N; ++b){
+            for (int c = 0; c<M; ++c){
+                h_At[A_I(a, c, b)] = h_A[A_I(a, b, c)];
+            }
+        }
+    }
   }
 
   //Timers
@@ -571,6 +616,14 @@ int main(int argc, char** argv) {
   cudaMemcpy(h_x, d_x, x_mem_size, cudaMemcpyDeviceToHost);
   cudaMemcpy(h_nnlsIters, d_nnlsIters, iters_mem_size, cudaMemcpyDeviceToHost);
   cudaMemcpy(h_lsIters, d_lsIters, iters_mem_size, cudaMemcpyDeviceToHost);
+
+  FILE *fp_x = fopen("h_x.csv", "w+");
+  for(int i = 0; i < NSYS; i++){
+    for(int j = 0; j < M; j++){
+        fprintf(fp_x, "%f,", h_x[i * M + j]);
+    }
+  }
+  fclose(fp_x);
 
   //Compute error ||Ax-b||2
   //Write x, Ax, and b
@@ -659,6 +712,7 @@ int main(int argc, char** argv) {
   // CUT_EXIT(argc, argv);
 }
 
+/*
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
   //get params from matlab
@@ -832,3 +886,4 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
   cudaEventDestroy(stop);
 
 }
+*/
